@@ -29,31 +29,36 @@
     <section id="studio" class="studio-layout">
       <section id="controlPanel" class="control-panel module" aria-label="氛围合成器">
         <div class="panel-topline"><span>01 / PERFORMANCE</span><span>LOCAL DSP</span></div>
-        <div class="display-frame">
-          <div class="display-top"><span>OUTPUT / NOTE4</span><span id="formatBadge" class="format-badge"></span></div>
-          <div class="selected-cover-wrap"><img id="selectedCover" alt="当前预设情景封面"></div>
-          <div class="display-caption"><span id="presetKicker"></span><span>400 × 300 / L</span></div>
+        <div class="performance-overview">
+          <div class="display-frame">
+            <div class="display-top"><span>OUTPUT / NOTE4</span><span id="formatBadge" class="format-badge"></span></div>
+            <div class="selected-cover-wrap"><img id="selectedCover" alt="当前预设情景封面"></div>
+            <div class="display-caption"><span id="presetKicker"></span><span>400 × 300 / L</span></div>
+          </div>
+          <div class="performance-details">
+            <div class="selected-heading"><div><h2 id="presetTitle"></h2></div><button id="resetParameters" class="text-button" type="button">重置 / R</button></div>
+            <p id="presetDescription" class="selected-description"></p>
+            <div class="note4-link">
+              <div class="note4-link-top"><span id="note4Led" class="note4-led" aria-hidden="true"></span><span id="note4State">正在读取 NOTE4 管理端</span><span class="note4-link-code">LAN / LOCAL</span></div>
+              <label class="sync-control" for="syncPush">
+                <input id="syncPush" type="checkbox" disabled>
+                <span class="sync-switch" aria-hidden="true"><i></i></span>
+                <span class="sync-copy"><strong>生成后同步到 NOTE4</strong><small id="syncNote">仅新音频；缓存命中不重复推送</small></span>
+              </label>
+              <p id="note4Detail" class="note4-detail" aria-live="polite">不会自动连接或抢占设备</p>
+            </div>
+            <div class="render-basics">
+              <label><span>SEGMENT / SEC</span><input id="seconds" type="number" min="15" max="300" step="15" value="300" required></label>
+              <label><span>SEED / 16 BIT</span><input id="seed" type="number" min="0" max="65535" value="42" required></label>
+            </div>
+          </div>
         </div>
-        <div class="note4-link">
-          <div class="note4-link-top"><span id="note4Led" class="note4-led" aria-hidden="true"></span><span id="note4State">正在读取 NOTE4 管理端</span><span class="note4-link-code">LAN / LOCAL</span></div>
-          <label class="sync-control" for="syncPush">
-            <input id="syncPush" type="checkbox" disabled>
-            <span class="sync-switch" aria-hidden="true"><i></i></span>
-            <span class="sync-copy"><strong>生成后同步到 NOTE4</strong><small id="syncNote">仅新音频；缓存命中不重复推送</small></span>
-          </label>
-          <p id="note4Detail" class="note4-detail" aria-live="polite">不会自动连接或抢占设备</p>
-        </div>
-        <div class="selected-heading"><div><h2 id="presetTitle"></h2></div><button id="resetParameters" class="text-button" type="button">重置 / R</button></div>
-        <p id="presetDescription" class="selected-description"></p>
 
-        <div class="render-basics">
-          <label><span>SEGMENT / SEC</span><input id="seconds" type="number" min="15" max="300" step="15" value="300" required></label>
-          <label><span>SEED / 16 BIT</span><input id="seed" type="number" min="0" max="65535" value="42" required></label>
-        </div>
-
-        <div class="parameter-heading"><h3>声音配方</h3><span class="muted">PATCH / NEXT</span></div>
-        <div id="parameterTabs" class="parameter-tabs" role="tablist"></div>
-        <div id="parameterGroups"></div>
+        <section class="synth-panel" aria-label="声音配方控制台">
+          <div class="parameter-heading"><div><span class="panel-overline">AMB–1 / PARAMETER ENGINE</span><h3>声音配方</h3></div><span class="panel-patch">PATCH / NEXT</span></div>
+          <div id="parameterTabs" class="parameter-tabs" role="tablist"></div>
+          <div id="parameterGroups" role="tabpanel" aria-label="当前参数分组"></div>
+        </section>
 
         <button id="renderButton" class="render-button" type="button" disabled><span id="renderButtonLabel">START / 连续生成</span><i>↗</i></button>
         <button id="stopPlayback" class="stop-button" type="button" hidden>STOP / 停止连续播放</button>
