@@ -68,11 +68,11 @@ fn random_seed() -> Result<u32, String> {
 }
 
 fn next_volume(current: u8, delta: i16) -> u8 {
-    const LEVELS: [u8; 5] = [0, 25, 50, 75, 100];
+    const LEVELS: [u8; 5] = [10, 25, 50, 75, 100];
     if delta > 0 {
         LEVELS.iter().copied().find(|level| *level > current).unwrap_or(100)
     } else {
-        LEVELS.iter().rev().copied().find(|level| *level < current).unwrap_or(0)
+        LEVELS.iter().rev().copied().find(|level| *level < current).unwrap_or(10)
     }
 }
 
@@ -125,6 +125,7 @@ impl Settings {
             }
             settings.volume = value as u8;
         }
+        settings.volume = settings.volume.max(10);
         if settings.preset >= PRESETS.len() || settings.seed > 65535 || !(15..=300).contains(&settings.seconds) || settings.volume > 100 {
             return Err("氛围配置超出允许范围".into());
         }

@@ -10,7 +10,7 @@
 <body>
   <header class="topbar">
     <a class="brand" href="#"><span class="brand-mark">AMB</span><span class="brand-word">atelier<small>ambient computer</small></span></a>
-    <nav><a href="#studio">声景 / PATCH</a><a href="#fields">实地 / FIELD</a><a href="#covers">画面 / SCREEN</a></nav>
+    <nav><a href="#studio">声景 / PATCH</a><a href="#fields">实地 / FIELD</a></nav>
     <div class="header-actions"><span class="local-badge"><i></i>NAS / AMB–1</span><button id="loginButton" class="login-button" type="button" hidden>输入访问令牌</button></div>
   </header>
 
@@ -21,20 +21,14 @@
       <div>
         <p class="eyebrow">GENERATIVE MUSIC MACHINE / 01</p>
         <h1>氛围运算器<span>AMB–1</span></h1>
-        <p class="hero-copy">8 组生成式声景与 4 条开放许可长录音。在你的 NAS 上计算、保存并播放，也可以交给 NOTE4。</p>
+        <p class="hero-copy">8 组生成式声景与 4 条开放许可长录音。在你的本地机器上计算、保存并播放，也可以交给 NOTE4。</p>
       </div>
       <div class="hero-note"><span>∞</span><small>CONTINUOUS<br>GENERATION</small></div>
     </section>
 
     <section id="studio" class="studio-layout">
-      <div class="preset-column module">
-        <div class="section-heading"><div><p class="eyebrow">01 / SOUND BANK</p><h2>声景存储器</h2></div><span class="muted">8 PATCHES</span></div>
-        <div id="presetGrid" class="preset-grid" aria-live="polite"></div>
-        <div class="module-foot"><span>按下选择声景</span><span>ORIGINAL AMB–1 DSP</span></div>
-      </div>
-
-      <aside id="controlPanel" class="control-panel module">
-        <div class="panel-topline"><span>02 / PERFORMANCE</span><span>LOCAL DSP</span></div>
+      <section id="controlPanel" class="control-panel module" aria-label="氛围合成器">
+        <div class="panel-topline"><span>01 / PERFORMANCE</span><span>LOCAL DSP</span></div>
         <div class="display-frame">
           <div class="display-top"><span>OUTPUT / NOTE4</span><span id="formatBadge" class="format-badge"></span></div>
           <div class="selected-cover-wrap"><img id="selectedCover" alt="当前预设情景封面"></div>
@@ -71,6 +65,12 @@
           <div class="playback-details"><span id="nextStatus"></span><button id="retryNext" class="text-button" type="button" hidden>重试下一段</button></div>
           <div class="download-row"><a id="downloadLink" class="download-link" download>下载本段 WAV ↓</a><span id="retentionNote" class="retention-note"></span></div>
         </div>
+      </section>
+
+      <aside class="preset-column module">
+        <div class="section-heading"><div><p class="eyebrow">02 / SOUND BANK</p><h2>选择预设</h2></div><span class="muted">8 PATCHES</span></div>
+        <div id="presetGrid" class="preset-grid" aria-live="polite"></div>
+        <div class="module-foot"><span>按下选择声景</span><span>AMB–1 DSP</span></div>
       </aside>
     </section>
 
@@ -85,11 +85,6 @@
       <div id="fieldGrid" class="field-grid"></div>
     </section>
 
-    <section id="covers" class="covers-section">
-      <div class="section-heading"><div><p class="eyebrow">04 / SCREEN MEMORY</p><h2>NOTE4 画面存储</h2></div><span class="muted">400 × 300 / 8-BIT L</span></div>
-      <p class="section-copy">原始连续灰阶 PNG，不预先量化或抖色。设备推送时由 SDK 转换为 gray16 或 gray4。</p>
-      <div id="coverGrid" class="cover-grid"></div>
-    </section>
   </main>
 
   <footer><span>AMB–1 / MPL–2.0</span><span>LOCAL DSP · NO CLOUD</span></footer>

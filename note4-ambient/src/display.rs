@@ -97,7 +97,7 @@ fn draw_status(image: &mut GrayImage, status: &DeviceStatus) {
 }
 
 fn draw_volume(image: &mut GrayImage, volume: u8) {
-    let level = ((volume as i32 + 12) / 25).min(4);
+    let level = [10, 25, 50, 75, 100].iter().position(|step| volume <= *step).unwrap_or(4) as i32;
     fill_rounded_rect(image, 20, 261, 64, 26, 6, 248);
     fill_rounded_rect(image, 28, 269, 13, 11, 4, 45);
     fill_rounded_rect(image, 34, 264, 10, 10, 4, 45);
@@ -107,23 +107,14 @@ fn draw_volume(image: &mut GrayImage, volume: u8) {
     fill_rect(image, 31, 280, 1, 3, 45);
     fill_rect(image, 36, 280, 1, 3, 45);
     fill_rect(image, 30, 272, 5, 4, 130);
-    if level == 0 {
-        fill_rect(image, 38, 267, 3, 1, 248);
-        fill_rect(image, 51, 265, 7, 1, 45);
-        fill_rect(image, 51, 271, 7, 1, 45);
-        for index in 0_i32..6 {
-            set_pixel(image, 56 - index, 266 + index, 45);
-        }
-    } else {
-        set_pixel(image, 39, 267, 248);
-        for index in 0_i32..level {
-            let x = 50 + index * 8;
-            let y = 264 + (index % 2) * 2;
-            fill_rect(image, x, y + 4, 3, 3, 45);
-            fill_rect(image, x + 2, y - 2, 1, 6, 45);
-            if index % 2 == 1 {
-                fill_rect(image, x + 3, y - 2, 3, 1, 45);
-            }
+    set_pixel(image, 39, 267, 248);
+    for index in 0_i32..=level {
+        let x = 46 + index * 7;
+        let y = 264 + (index % 2) * 2;
+        fill_rect(image, x, y + 4, 3, 3, 45);
+        fill_rect(image, x + 2, y - 2, 1, 6, 45);
+        if index % 2 == 1 {
+            fill_rect(image, x + 3, y - 2, 3, 1, 45);
         }
     }
 }

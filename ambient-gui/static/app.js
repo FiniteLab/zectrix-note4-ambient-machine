@@ -117,18 +117,6 @@ function renderPresets() {
   });
 }
 
-function renderCovers() {
-  $("coverGrid").innerHTML = state.presets.map((preset) => `
-    <article class="cover-card">
-      <img src="/covers/${preset.name}.png" alt="${escapeHtml(preset.title)}情景封面" width="400" height="300" loading="lazy">
-      <div class="cover-info">
-        <h3>${escapeHtml(preset.title)}</h3>
-        <p>${escapeHtml(engineNames[preset.id])} · ${preset.format} · 400 × 300</p>
-        <a href="/covers/${preset.name}.png" download="${preset.name}.png">下载 NOTE4 原图 ↗</a>
-      </div>
-    </article>`).join("");
-}
-
 function formatDuration(seconds) {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
@@ -351,7 +339,6 @@ async function initialize() {
     state.fields = data.fields;
     $("loginButton").hidden = true;
     renderPresets();
-    renderCovers();
     renderFields();
     renderTabs();
     await selectPreset(0);
