@@ -1,0 +1,37 @@
+diff --git a/app/dsp/amb.c b/app/dsp/amb.c
+index d457e0d..e764ea0 100644
+--- a/app/dsp/amb.c
++++ b/app/dsp/amb.c
+@@ -351,6 +351,15 @@ static inline float sine(float ph)              /* ph in turns, any value >= 0 *
+     return sint[i] + (sint[i + 1] - sint[i]) * f;
+ }
+ 
++/* N150 optimization: identical table interpolation for a phase already reduced to one turn. */
++static inline float sine_unit(float ph)
++{
++    float x = ph * (float)SN;
++    int i = (int)x;
++    float f = x - (float)i;
++    return sint[i] + (sint[i + 1] - sint[i]) * f;
++}
++
+ /* ------------------------------------------------- slow random motion --- */
+ #define NMOD 9                                  /* 0..5 the pads', 6..8 the echo's */
+ #define NMOD_PAD 6
+@@ -1495,8 +1504,14 @@ static void render_pad(uint32_t n)
+                 idx = (0.04f + 0.1f * bright * 0.01f + 0.1f * br) * (1.0f + 0.4f * arcm);
+             }
+             if (!v->voices) {                    /* FM, the modulator at the carrier's pitch: a Rhodes */
+-                float m = sine(p0) * idx;
+-                x = (sine(p0 + m + 1.0f) + 0.12f * sine(2.0f * p0)) * 1.2f;   /* one carrier: no beating */
++                float m = sine_unit(p0) * idx;
++                float phase = p0 + m + 1.0f;
++                float harmonic = 2.0f * p0;
++                if (phase >= 1.0f)
++                    phase -= 1.0f;
++                if (harmonic >= 1.0f)
++                    harmonic -= 1.0f;
++                x = (sine_unit(phase) + 0.12f * sine_unit(harmonic)) * 1.2f;   /* one carrier: no beating */
+                 p0 += v->inc[0];
+                 if (p0 >= 1.0f)
+                     p0 -= 1.0f;

@@ -1,0 +1,10 @@
+[package]
+name = "note4-ambient"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+zectrix-sdk = { path = "../zectrix-local-push-sdk" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "signal", "sync", "time"] }
+image = { version = "0.25", default-features = false, features = ["png"] }

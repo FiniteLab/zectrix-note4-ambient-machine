@@ -1,0 +1,6 @@
+[submodule "zectrix-local-push-sdk"]
+	path = zectrix-local-push-sdk
+	url = https://github.com/itopinion/zectrix-local-push-sdk.git
+[submodule "fm1-amb-reference"]
+	path = fm1-amb-reference
+	url = https://github.com/charlesvestal/fm1-amb.git

@@ -1,0 +1,13 @@
+**/.DS_Store
+**/target/
+**/__pycache__/
+**/.venv/
+**/out/
+**/*.log
+.tools/
+.env
+**/.env
+**/.env.*
+note4-ambient/cache/
+note4-ambient/spool/
+field-recordings/audio/
