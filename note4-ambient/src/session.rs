@@ -242,13 +242,15 @@ async fn decode_wav(scratch: &Scratch, seconds: u32) -> Result<AudioClip, String
 }
 
 async fn prepare(preset: usize, seed: u32, seconds: u32, overrides: Vec<(u32, i32)>) -> Result<Prepared, String> {
+    let started = Instant::now();
+    println!("PREPARE_BEGIN：{} · 种子 {seed}", PRESETS[preset]);
     let scratch = new_scratch(preset, seed)?;
     let seconds = if preset >= 8 { FIELD_SECONDS[preset - 8] } else { seconds };
     if preset >= 8 {
         let source = project_root().join("field-recordings/audio").join(format!("{}.mp3", PRESETS[preset]));
         fs::copy(source, &scratch.wav).map_err(|_| "实地录音文件不可读")?;
         let clip = decode_wav(&scratch, seconds).await?;
-        println!("实地录音已准备：{} · 完整 {seconds} 秒", PRESETS[preset]);
+        println!("实地录音已准备：{} · 完整 {seconds} 秒 · 准备耗时 {:.1} 秒", PRESETS[preset], started.elapsed().as_secs_f32());
         return Ok(Prepared { preset, seed: 0, seconds, clip, position: 0 });
     }
     let mut command = Command::new(project_root().join("ambient-synth/out/amb-render"));
@@ -260,8 +262,9 @@ async fn prepare(preset: usize, seed: u32, seconds: u32, overrides: Vec<(u32, i3
     if !renderer.status.success() {
         return Err("AMB 渲染失败，未自动重试".into());
     }
+    println!("PREPARE_RENDERED：{} · 渲染耗时 {:.1} 秒", PRESETS[preset], started.elapsed().as_secs_f32());
     let clip = decode_wav(&scratch, seconds).await?;
-    println!("已准备：{} · 种子 {seed} · {seconds} 秒", PRESETS[preset]);
+    println!("已准备：{} · 种子 {seed} · {seconds} 秒 · 准备耗时 {:.1} 秒", PRESETS[preset], started.elapsed().as_secs_f32());
     Ok(Prepared { preset, seed, seconds, clip, position: 0 })
 }
 
@@ -295,7 +298,13 @@ async fn show_image(device: &Device, screen: Screen, status: &zectrix_sdk::Devic
     let source = fs::read(path).map_err(|_| "启动图、加载图或风格封面尚未准备好")?;
     let png = crate::display::render(&source, status, volume)?;
     let format = if matches!(screen, Screen::Loading(6) | Screen::Cover(6)) { ImageFormat::Gray4 } else { ImageFormat::Gray16 };
-    device.show_with_format(&png, format).await.map_err(|error| error_kind(&error))?;
+    let label = match screen {
+        Screen::Startup => "启动图",
+        Screen::Loading(_) => "加载图",
+        Screen::Cover(_) => "封面",
+    };
+    println!("IMAGE_BEGIN：{label}");
+    device.show_with_format(&png, format).await.map_err(|error| format!("{label}推送失败：{}", error_kind(&error)))?;
     match screen {
         Screen::Startup => println!("STARTUP_DISPLAY_COMPLETED：启动图已显示"),
         Screen::Loading(index) => println!("LOADING_DISPLAY_COMPLETED：{}", PRESETS[index]),
@@ -393,6 +402,7 @@ async fn consume_events(device: Arc<Device>, controls: UnboundedSender<Control>)
             Ok(Some(Event::RecordingStarted)) => println!("设备按键触发录音；不上传、不保存"),
             Ok(Some(Event::RecordingFinished { reason, .. })) => println!("录音事件结束：{reason:?}；未保存音频"),
             Ok(Some(Event::Disconnected { reason })) => {
+                println!("DEVICE_DISCONNECT_RX：{reason:?}");
                 let _ = controls.send(Control::Fatal(format!("设备会话结束：{reason:?}")));
                 return;
             }
@@ -433,12 +443,13 @@ async fn play_segment(
         }
         let started = Instant::now();
         let playback_clip = clip.clone();
+        println!("PLAY_BEGIN：{} · 种子 {} · {} 秒 · 音量 {}", PRESETS[report.preset], report.seed, playback_clip.samples.len() / 16000, *volume);
         let play = device.play(&playback_clip, *volume);
         tokio::pin!(play);
         'events: loop {
             tokio::select! {
                 result = &mut play => {
-                    let end = result.map_err(|error| error_kind(&error))?;
+                    let end = result.map_err(|error| format!("音频播放失败：{}", error_kind(&error)))?;
                     return match end {
                         PlaybackEnd::Completed => Ok(Outcome::Completed),
                         PlaybackEnd::Stopped => Ok(Outcome::Stop),
@@ -819,6 +830,7 @@ async fn run_device(
     syncs: &mut UnboundedReceiver<crate::sync::SyncCommand>,
     report: &mut crate::sync::Report,
 ) -> Result<(), String> {
+    let session_started = Instant::now();
     let device = Arc::new(device);
     let mut events = tokio::spawn(consume_events(device.clone(), sender.clone()));
     let mut result = {
@@ -842,6 +854,7 @@ async fn run_device(
             result = Err(error);
         }
     }
+    println!("SESSION_CLEANUP：会话时长 {:.1} 秒", session_started.elapsed().as_secs_f32());
     settings.save()?;
     report.connected = false;
     report.phase = match &result {
