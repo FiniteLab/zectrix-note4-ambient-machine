@@ -16,7 +16,7 @@
 ## 兼容环境
 
 - NOTE4，固件 3.7.5；不适用于 NOTE4C。
-- 本地推送 SDK 0.2.0，固定提交 `0dc44c31ba70ec0c2a558ec53de902663e45d3d3`。
+- 本地推送 SDK 0.2.0，固定提交 `0dc44c31ba70ec0c2a558ec53de902663e45d3d3`；`build-nas.sh` 会应用 `note4-ambient/patches/sdk-diagnostics.patch`，只增加原始结果码日志，不改变收发行为。
 - AMB 原始参考固定提交 `7c538516d6c52216ff4c8a4881cf2f0dcb07c44b`，CPU 优化补丁位于 `ambient-synth/patches/amb-cpu.patch`。
 - Rust、C/C++ 编译器、CMake、Python 3.10+、curl、ffmpeg/ffprobe。
 

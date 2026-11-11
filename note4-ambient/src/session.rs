@@ -383,7 +383,7 @@ enum Control {
     Fatal(String),
 }
 
-async fn consume_events(device: Arc<Device>, controls: UnboundedSender<Control>) {
+async fn consume_events(device: Arc<Device>, controls: UnboundedSender<Control>, closing: Arc<AtomicBool>) {
     loop {
         match device.next_event().await {
             Ok(Some(Event::Key { key, action })) => {
@@ -402,7 +402,12 @@ async fn consume_events(device: Arc<Device>, controls: UnboundedSender<Control>)
             Ok(Some(Event::RecordingStarted)) => println!("设备按键触发录音；不上传、不保存"),
             Ok(Some(Event::RecordingFinished { reason, .. })) => println!("录音事件结束：{reason:?}；未保存音频"),
             Ok(Some(Event::Disconnected { reason })) => {
-                println!("DEVICE_DISCONNECT_RX：{reason:?}");
+                // The SDK reports a locally requested close through the same event as a device-side one.
+                if closing.load(Ordering::SeqCst) {
+                    println!("LOCAL_CLOSE_DONE：本端已关闭会话（{reason:?}）");
+                } else {
+                    println!("DEVICE_DISCONNECT_RX：{reason:?}");
+                }
                 let _ = controls.send(Control::Fatal(format!("设备会话结束：{reason:?}")));
                 return;
             }
@@ -825,16 +830,18 @@ async fn shutdown_signal() {
 async fn run_device(
     device: Device,
     settings: &mut Settings,
-    sender: &UnboundedSender<Control>,
-    controls: &mut UnboundedReceiver<Control>,
     syncs: &mut UnboundedReceiver<crate::sync::SyncCommand>,
     report: &mut crate::sync::Report,
 ) -> Result<(), String> {
     let session_started = Instant::now();
     let device = Arc::new(device);
-    let mut events = tokio::spawn(consume_events(device.clone(), sender.clone()));
+    // One channel per session: closing the device always queues a final Disconnected control,
+    // which a shared channel would hand to the next session as a fatal event.
+    let (sender, mut controls) = unbounded_channel();
+    let closing = Arc::new(AtomicBool::new(false));
+    let mut events = tokio::spawn(consume_events(device.clone(), sender, closing.clone()));
     let mut result = {
-        let operation = session_loop(&device, settings, controls, syncs, report);
+        let operation = session_loop(&device, settings, &mut controls, syncs, report);
         tokio::pin!(operation);
         tokio::select! {
             result = &mut operation => result,
@@ -844,6 +851,7 @@ async fn run_device(
             }
         }
     };
+    closing.store(true, Ordering::SeqCst);
     let close_result = device.close().await.map_err(|error| error_kind(&error));
     if tokio::time::timeout(Duration::from_secs(3), &mut events).await.is_err() {
         events.abort();
@@ -881,11 +889,10 @@ pub async fn play_saved() -> Result<(), String> {
     let target = configured_target()?;
     let device = crate::open(&target).await?;
     let mut settings = Settings::load()?;
-    let (sender, mut controls) = unbounded_channel();
     let (sync_sender, mut syncs) = unbounded_channel();
     let watcher = tokio::spawn(crate::sync::watch(sync_sender));
     let mut report = crate::sync::Report::new();
-    let result = run_device(device, &mut settings, &sender, &mut controls, &mut syncs, &mut report).await;
+    let result = run_device(device, &mut settings, &mut syncs, &mut report).await;
     watcher.abort();
     let _ = watcher.await;
     result
@@ -898,7 +905,6 @@ pub async fn serve() -> Result<(), String> {
     cleanup_cache(&project_root().join("note4-ambient/cache"));
     let mut report = crate::sync::Report::new();
     report.write();
-    let (sender, mut controls) = unbounded_channel();
     let (sync_sender, mut syncs) = unbounded_channel();
     let watcher = tokio::spawn(crate::sync::watch(sync_sender));
     let mut listener = ConnectionRequestListener::bind().await.map_err(|error| error_kind(&error))?;
@@ -940,7 +946,7 @@ pub async fn serve() -> Result<(), String> {
                 report.connected = true;
                 report.phase = "starting";
                 report.write();
-                match run_device(device, &mut settings, &sender, &mut controls, &mut syncs, &mut report).await {
+                match run_device(device, &mut settings, &mut syncs, &mut report).await {
                     Ok(()) => println!("设备已释放，等待下一次主动连接"),
                     Err(error) => println!("会话结束：{error}"),
                 }

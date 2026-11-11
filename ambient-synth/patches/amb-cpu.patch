@@ -1,8 +1,8 @@
 diff --git a/app/dsp/amb.c b/app/dsp/amb.c
-index d457e0d..e764ea0 100644
+index d457e0d..f309790 100644
 --- a/app/dsp/amb.c
 +++ b/app/dsp/amb.c
-@@ -351,6 +351,15 @@ static inline float sine(float ph)              /* ph in turns, any value >= 0 *
+@@ -351,6 +351,16 @@ static inline float sine(float ph)              /* ph in turns, any value >= 0 *
      return sint[i] + (sint[i + 1] - sint[i]) * f;
  }
  
@@ -12,13 +12,14 @@ index d457e0d..e764ea0 100644
 +    float x = ph * (float)SN;
 +    int i = (int)x;
 +    float f = x - (float)i;
++    i &= SN - 1;                                /* a phase rounded up to exactly one turn wraps to the table start */
 +    return sint[i] + (sint[i + 1] - sint[i]) * f;
 +}
 +
  /* ------------------------------------------------- slow random motion --- */
  #define NMOD 9                                  /* 0..5 the pads', 6..8 the echo's */
  #define NMOD_PAD 6
-@@ -1495,8 +1504,14 @@ static void render_pad(uint32_t n)
+@@ -1495,8 +1505,14 @@ static void render_pad(uint32_t n)
                  idx = (0.04f + 0.1f * bright * 0.01f + 0.1f * br) * (1.0f + 0.4f * arcm);
              }
              if (!v->voices) {                    /* FM, the modulator at the carrier's pitch: a Rhodes */

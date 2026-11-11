@@ -72,6 +72,9 @@ int main(int argc, char **argv)
     float peak = 0.0f;
     double square_sum = 0.0;
     uint32_t clipped = 0;
+    int32_t held[2] = {0, 0};
+    uint32_t stuck = 0;
+    int broken = 0;
     int piece = -1;
     int index;
     int override_ids[P_NPARAMS];
@@ -155,6 +158,18 @@ int main(int argc, char **argv)
         uint32_t i;
         uint8_t bytes[1024];
         en_render(buffer, count, 2048);
+        /* A NaN inside the engine saturates the output stage: the level stops moving while staying nonzero. */
+        for (i = 0; i < count; i++) {
+            int32_t left = buffer[i * 2], right = buffer[i * 2 + 1];
+            if ((left || right) && left == held[0] && right == held[1]) {
+                if (++stuck >= 44100)
+                    broken = 1;
+            } else {
+                stuck = 0;
+            }
+            held[0] = left;
+            held[1] = right;
+        }
         for (i = 0; i < count * 2; i++) {
             float value = (float)buffer[i] / 8388608.0f;
             uint32_t remaining = total - frame - i / 2;
@@ -179,6 +194,11 @@ int main(int argc, char **argv)
     }
     if (wav_header(file, total) != 0 || fclose(file) != 0) {
         fprintf(stderr, "WAV 写入失败\n");
+        return 1;
+    }
+    if (broken) {
+        remove(argv[3]);
+        fprintf(stderr, "渲染输出异常：恒定非零电平持续超过 1 秒，已丢弃 WAV\n");
         return 1;
     }
     printf("预设: %s；时长: %u 秒；峰值: %.3f；RMS: %.4f；越界样本: %u\n",

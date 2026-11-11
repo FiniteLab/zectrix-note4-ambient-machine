@@ -1,0 +1,71 @@
+diff --git a/src/device.rs b/src/device.rs
+index 1655fb3..bad49f0 100644
+--- a/src/device.rs
++++ b/src/device.rs
+@@ -627,18 +627,29 @@ async fn play(
+     };
+     let start = Instant::now();
+     let total = frames.len();
++    // Diagnostics only: the public result folds every other raw reason into DeviceFailure.
++    let finish = |source: &str, reason: u8, sent: usize| {
++        eprintln!(
++            "ZECTRIX_PLAY_END：来源 {source} · 流 {id} · 原始结束原因 {reason} · 已发送 {sent}/{total} 帧 · 开始后 {:.2} 秒",
++            start.elapsed().as_secs_f32()
++        );
++        playback_result(&wire, id, reason)
++    };
+     let mut shutdown = wire.shutdown.subscribe();
+     for (i, frame) in frames.into_iter().enumerate() {
+         tokio::select! {_ = tokio::time::sleep_until(start+Duration::from_millis(i as u64*60))=>{},_=shutdown.changed()=>return Err(Error::Disconnected)}
+         if let Some(r) = wire.result(2, id) {
+-            return playback_result(&wire, id, r);
++            return finish("RESULT", r, i);
+         }
+         if wire.stopped_play.load(Ordering::SeqCst) == id {
+             return Ok(PlaybackEnd::Stopped);
+         }
+-        if Instant::now().duration_since(start + Duration::from_millis(i as u64 * 60))
+-            > Duration::from_millis(360)
+-        {
++        let late = Instant::now().duration_since(start + Duration::from_millis(i as u64 * 60));
++        if late > Duration::from_millis(360) {
++            eprintln!(
++                "ZECTRIX_PLAY_STALL：流 {id} · 第 {i}/{total} 帧发送延迟 {} 毫秒，本端停止该流",
++                late.as_millis()
++            );
+             let _ = wire.control(AUDIO_STOP, id.to_be_bytes().to_vec()).await;
+             return Err(Error::TransportFailure("音频发送调度停顿".into()));
+         }
+@@ -653,17 +664,17 @@ async fn play(
+     body.push(0);
+     if let Err(e) = wire.control(AUDIO_END, body).await {
+         if let Some(r) = wire.result(2, id) {
+-            return playback_result(&wire, id, r);
++            return finish("RESULT", r, total);
+         }
+         return Err(e);
+     }
+     let deadline = Instant::now() + Duration::from_secs(15);
+     loop {
+         if let Some(r) = wire.result(2, id) {
+-            return playback_result(&wire, id, r);
++            return finish("RESULT", r, total);
+         }
+         if let Some(r) = wire.state_result(2, id).await {
+-            return playback_result(&wire, id, r);
++            return finish("STATE", r, total);
+         }
+         if wire.closed() {
+             return Err(Error::Disconnected);
+@@ -762,9 +773,9 @@ async fn receive(wire: Arc<Wire>, tx: mpsc::Sender<Event>) {
+                     seen.push_back((p.kind,p.sequence,p.body.clone()));if seen.len()>256{seen.pop_front();}
+                 }
+                 match p.kind{
+-                    CLOSE=>break disconnect(p.body[0]),
++                    CLOSE=>{eprintln!("ZECTRIX_CLOSE_RX：设备通知关闭 · 原始原因码 {}",p.body[0]);break disconnect(p.body[0])},
+                     KEY=>{let key=match p.body[0]{1=>Key::Up,2=>Key::Down,_=>Key::Confirm};let action=if p.body[1]==1{KeyAction::Short}else{KeyAction::Long};if !emit(&wire,&tx,Event::Key{key,action}){break DisconnectReason::Failed;}},
+-                    RESULT=>{let id=u32_at(&p.body,0).unwrap();wire.store_result(p.body[4],id,p.body[5]);},
++                    RESULT=>{let id=u32_at(&p.body,0).unwrap();eprintln!("ZECTRIX_RESULT_RX：对象 {}（1 图片 / 2 播放）· ID {id} · 原始结果码 {}",p.body[4],p.body[5]);wire.store_result(p.body[4],id,p.body[5]);},
+                     AUDIO_BEGIN|AUDIO_DATA|AUDIO_END=>{
+                         let id=if p.kind==AUDIO_BEGIN{p.sequence}else{u32_at(&p.body,0).unwrap()};
+                         if id==0||id<=ended||recording.as_ref().is_some_and(|r|id<r.id){continue;}
