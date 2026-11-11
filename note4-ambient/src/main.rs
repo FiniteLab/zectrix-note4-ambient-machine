@@ -5,7 +5,7 @@ use std::{
     net::IpAddr,
     path::PathBuf,
     sync::Arc,
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use zectrix_sdk::{
     AudioClip, ConnectionRequestListener, Device, DeviceStatus, Error, Event, ImageFormat, Key, KeyAction,
@@ -15,6 +15,11 @@ use zectrix_sdk::{
 mod display;
 mod session;
 mod sync;
+
+pub(crate) fn log_time() -> String {
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+    format!("{}.{:03}", now.as_secs(), now.subsec_millis())
+}
 
 pub(crate) fn error_kind(error: &Error) -> String {
     match error {

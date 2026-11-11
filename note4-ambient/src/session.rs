@@ -18,7 +18,7 @@ use tokio::{
     time::Instant,
 };
 use zectrix_sdk::{
-    AudioClip, ConnectionRequestListener, Device, Event, ImageFormat, Key, KeyAction, PlaybackEnd,
+    AudioClip, ConnectionRequestListener, Device, Error, Event, ImageFormat, Key, KeyAction, PlaybackEnd,
 };
 
 pub(crate) const PRESETS: [&str; 12] = [
@@ -397,16 +397,16 @@ async fn consume_events(device: Arc<Device>, controls: UnboundedSender<Control>,
                 if controls.send(control).is_err() {
                     return;
                 }
-                println!("KEY_RX：{key:?} / {action:?}");
+                println!("KEY_RX：{key:?} / {action:?} · 时间 {}", crate::log_time());
             }
             Ok(Some(Event::RecordingStarted)) => println!("设备按键触发录音；不上传、不保存"),
             Ok(Some(Event::RecordingFinished { reason, .. })) => println!("录音事件结束：{reason:?}；未保存音频"),
             Ok(Some(Event::Disconnected { reason })) => {
                 // The SDK reports a locally requested close through the same event as a device-side one.
                 if closing.load(Ordering::SeqCst) {
-                    println!("LOCAL_CLOSE_DONE：本端已关闭会话（{reason:?}）");
+                    println!("LOCAL_CLOSE_DONE：本端已关闭会话（{reason:?}）· 时间 {}", crate::log_time());
                 } else {
-                    println!("DEVICE_DISCONNECT_RX：{reason:?}");
+                    println!("DEVICE_DISCONNECT_RX：{reason:?} · 时间 {}", crate::log_time());
                 }
                 let _ = controls.send(Control::Fatal(format!("设备会话结束：{reason:?}")));
                 return;
@@ -448,13 +448,24 @@ async fn play_segment(
         }
         let started = Instant::now();
         let playback_clip = clip.clone();
-        println!("PLAY_BEGIN：{} · 种子 {} · {} 秒 · 音量 {}", PRESETS[report.preset], report.seed, playback_clip.samples.len() / 16000, *volume);
+        println!("PLAY_BEGIN：{} · 种子 {} · {} 秒 · 音量 {} · 时间 {}", PRESETS[report.preset], report.seed, playback_clip.samples.len() / 16000, *volume, crate::log_time());
         let play = device.play(&playback_clip, *volume);
         tokio::pin!(play);
         'events: loop {
             tokio::select! {
                 result = &mut play => {
-                    let end = result.map_err(|error| format!("音频播放失败：{}", error_kind(&error)))?;
+                    let end = match result {
+                        Ok(end) => end,
+                        Err(Error::DeviceFailure) => {
+                            let status_started = Instant::now();
+                            match device.status().await {
+                                Ok(status) => println!("PLAY_FAILURE_STATUS：电量 {:?}% · 充电 {:?} · Wi-Fi {:?} dBm · 查询 {} 毫秒 · 时间 {}", status.battery_percent, status.charging, status.wifi_rssi_dbm, status_started.elapsed().as_millis(), crate::log_time()),
+                                Err(error) => println!("PLAY_FAILURE_STATUS_ERROR：{} · 查询 {} 毫秒 · 时间 {}", error_kind(&error), status_started.elapsed().as_millis(), crate::log_time()),
+                            }
+                            return Err("音频播放失败：设备处理失败".into());
+                        }
+                        Err(error) => return Err(format!("音频播放失败：{}", error_kind(&error))),
+                    };
                     return match end {
                         PlaybackEnd::Completed => Ok(Outcome::Completed),
                         PlaybackEnd::Stopped => Ok(Outcome::Stop),
@@ -862,7 +873,7 @@ async fn run_device(
             result = Err(error);
         }
     }
-    println!("SESSION_CLEANUP：会话时长 {:.1} 秒", session_started.elapsed().as_secs_f32());
+    println!("SESSION_CLEANUP：会话时长 {:.1} 秒 · 时间 {}", session_started.elapsed().as_secs_f32(), crate::log_time());
     settings.save()?;
     report.connected = false;
     report.phase = match &result {
@@ -948,7 +959,7 @@ pub async fn serve() -> Result<(), String> {
                 report.write();
                 match run_device(device, &mut settings, &mut syncs, &mut report).await {
                     Ok(()) => println!("设备已释放，等待下一次主动连接"),
-                    Err(error) => println!("会话结束：{error}"),
+                    Err(error) => println!("会话结束：{error} · 时间 {}", crate::log_time()),
                 }
             }
             Err(error) => println!("接受连接失败：{error}"),

@@ -16,7 +16,7 @@
 ## 兼容环境
 
 - NOTE4，固件 3.7.5；不适用于 NOTE4C。
-- 本地推送 SDK 0.2.0，固定提交 `0dc44c31ba70ec0c2a558ec53de902663e45d3d3`；`build-nas.sh` 会应用 `note4-ambient/patches/sdk-diagnostics.patch`，只增加原始结果码日志，不改变收发行为。
+- 本地推送 SDK 0.2.0，固定提交 `0dc44c31ba70ec0c2a558ec53de902663e45d3d3`；`build-nas.sh` 会应用 `note4-ambient/patches/sdk-diagnostics.patch`，增加时间戳、原始结果码和心跳诊断，默认不改变收发行为。
 - AMB 原始参考固定提交 `7c538516d6c52216ff4c8a4881cf2f0dcb07c44b`，CPU 优化补丁位于 `ambient-synth/patches/amb-cpu.patch`。
 - Rust、C/C++ 编译器、CMake、Python 3.10+、curl、ffmpeg/ffprobe。
 
@@ -71,6 +71,8 @@ unset target
 - 网页“生成后同步到 NOTE4”默认关闭。开启后仅同步之后新生成的音频，缓存命中不重复推送。
 - 实地录音主动选择会立即切换；合成器后续预生成段则排队，避免提前切歌。
 - 关闭网页同步会取消尚未播放的排队段，不中断当前声音。
+
+诊断时可手动运行 `./note4-ambient/diag-ping.sh start`，用 `stop` 停止、`status` 查看状态。日志保存在 `note4-ambient/out/ping.log`，设备地址会替换为 `[device]`。`ZECTRIX_DIAG_GAP=<起始帧>:<帧数>` 是受控断流实验开关，日常运行不要设置；实验结束后取消该环境变量并重启管理端。
 
 ## 停止、更新与卸载
 

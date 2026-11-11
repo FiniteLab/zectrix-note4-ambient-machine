@@ -1,16 +1,92 @@
 diff --git a/src/device.rs b/src/device.rs
-index 1655fb3..bad49f0 100644
+index 1655fb3..7df232b 100644
 --- a/src/device.rs
 +++ b/src/device.rs
-@@ -627,18 +627,29 @@ async fn play(
+@@ -6,11 +6,12 @@ use crate::{
+ };
+ use std::{
+     collections::{BTreeMap, HashMap, VecDeque},
++    env,
+     sync::{
+         atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
+         Arc, Mutex as StdMutex,
+     },
+-    time::Duration,
++    time::{Duration, SystemTime, UNIX_EPOCH},
+ };
+ use tokio::{
+     net::UdpSocket,
+@@ -18,6 +19,11 @@ use tokio::{
+     time::{sleep, timeout, timeout_at, Instant},
+ };
+ 
++fn log_time() -> String {
++    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
++    format!("{}.{:03}", now.as_secs(), now.subsec_millis())
++}
++
+ type Pending = Arc<StdMutex<HashMap<(u8, u32), oneshot::Sender<Packet>>>>;
+ struct PendingGuard {
+     key: (u8, u32),
+@@ -40,6 +46,7 @@ struct Wire {
+     shutdown: watch::Sender<Option<DisconnectReason>>,
+     results: StdMutex<BTreeMap<(u8, u32), u8>>,
+     last_ping: StdMutex<Instant>,
++    ping_rtts: StdMutex<VecDeque<u64>>,
+     image_gate: Arc<Semaphore>,
+     image_upload: Mutex<()>,
+     play_gate: Arc<Semaphore>,
+@@ -310,6 +317,7 @@ impl Device {
+             shutdown,
+             results: Default::default(),
+             last_ping: StdMutex::new(Instant::now()),
++            ping_rtts: Default::default(),
+             image_gate: Arc::new(Semaphore::new(2)),
+             image_upload: Mutex::new(()),
+             play_gate: Arc::new(Semaphore::new(1)),
+@@ -604,6 +612,17 @@ fn playback_result(wire: &Wire, id: u32, reason: u8) -> Result<PlaybackEnd> {
+         _ => Err(Error::DeviceFailure),
+     }
+ }
++fn diagnostic_gap(total: usize) -> Result<Option<(usize, usize)>> {
++    let Some(spec) = env::var_os("ZECTRIX_DIAG_GAP") else { return Ok(None) };
++    let spec = spec.into_string().map_err(|_| Error::InvalidOptions("ZECTRIX_DIAG_GAP 应为 ASCII 帧范围".into()))?;
++    let (start, count) = spec.split_once(':').ok_or_else(|| Error::InvalidOptions("ZECTRIX_DIAG_GAP 应为 <起始帧>:<帧数>".into()))?;
++    let start = start.parse::<usize>().map_err(|_| Error::InvalidOptions("断流起始帧无效".into()))?;
++    let count = count.parse::<usize>().map_err(|_| Error::InvalidOptions("断流帧数无效".into()))?;
++    if start >= total || count == 0 || count > total - start {
++        return Err(Error::InvalidOptions("断流范围超出当前音频".into()));
++    }
++    Ok(Some((start, start + count)))
++}
+ async fn play(
+     wire: Arc<Wire>,
+     ticket: u32,
+@@ -611,6 +630,7 @@ async fn play(
+     tail: u16,
+     volume: u8,
+ ) -> Result<PlaybackEnd> {
++    let gap = diagnostic_gap(frames.len())?;
+     let id = {
+         let _command = wire.command.lock().await;
+         if wire.play_generation.load(Ordering::SeqCst) != ticket {
+@@ -627,43 +647,77 @@ async fn play(
      };
      let start = Instant::now();
      let total = frames.len();
 +    // Diagnostics only: the public result folds every other raw reason into DeviceFailure.
 +    let finish = |source: &str, reason: u8, sent: usize| {
++        let history = if reason == 0 {
++            String::new()
++        } else {
++            let rtts = wire.ping_rtts.lock().unwrap().iter().map(|rtt| rtt.to_string()).collect::<Vec<_>>().join(",");
++            format!(" · 最近 12 次心跳 RTT 毫秒 [{rtts}]")
++        };
 +        eprintln!(
-+            "ZECTRIX_PLAY_END：来源 {source} · 流 {id} · 原始结束原因 {reason} · 已发送 {sent}/{total} 帧 · 开始后 {:.2} 秒",
-+            start.elapsed().as_secs_f32()
++            "ZECTRIX_PLAY_END：来源 {source} · 流 {id} · 原始结束原因 {reason} · 已发送 {sent}/{total} 帧 · 开始后 {:.2} 秒 · 本机时间 {}{}",
++            start.elapsed().as_secs_f32(),
++            log_time(),
++            history
 +        );
 +        playback_result(&wire, id, reason)
 +    };
@@ -30,13 +106,35 @@ index 1655fb3..bad49f0 100644
 +        let late = Instant::now().duration_since(start + Duration::from_millis(i as u64 * 60));
 +        if late > Duration::from_millis(360) {
 +            eprintln!(
-+                "ZECTRIX_PLAY_STALL：流 {id} · 第 {i}/{total} 帧发送延迟 {} 毫秒，本端停止该流",
-+                late.as_millis()
++                "ZECTRIX_PLAY_STALL：流 {id} · 第 {i}/{total} 帧发送延迟 {} 毫秒，本端停止该流 · 本机时间 {}",
++                late.as_millis(),
++                log_time()
 +            );
              let _ = wire.control(AUDIO_STOP, id.to_be_bytes().to_vec()).await;
              return Err(Error::TransportFailure("音频发送调度停顿".into()));
          }
-@@ -653,17 +664,17 @@ async fn play(
++        if let Some((gap_start, gap_end)) = gap {
++            if i == gap_start {
++                eprintln!("ZECTRIX_DIAG_GAP_BEGIN：流 {id} · 停发 {gap_start} 至 {} 帧 · 共 {} 帧 · 本机时间 {}", gap_end - 1, gap_end - gap_start, log_time());
++            }
++            if i == gap_end {
++                eprintln!("ZECTRIX_DIAG_GAP_END：流 {id} · 恢复于帧 {gap_end} · 本机时间 {}", log_time());
++            }
++            if i >= gap_start && i < gap_end {
++                continue;
++            }
++        }
+         let mut body = id.to_be_bytes().to_vec();
+         body.extend(frame);
+         wire.send(Packet::new(AUDIO_DATA, wire.id, i as u32, body))
+             .await?;
+     }
++    if gap.is_some_and(|(_, end)| end == total) {
++        eprintln!("ZECTRIX_DIAG_GAP_END：流 {id} · 结束于帧 {total} · 本机时间 {}", log_time());
++    }
+     let mut body = id.to_be_bytes().to_vec();
+     body.extend((total as u32).to_be_bytes());
+     body.extend(tail.to_be_bytes());
      body.push(0);
      if let Err(e) = wire.control(AUDIO_END, body).await {
          if let Some(r) = wire.result(2, id) {
@@ -57,15 +155,37 @@ index 1655fb3..bad49f0 100644
          }
          if wire.closed() {
              return Err(Error::Disconnected);
-@@ -762,9 +773,9 @@ async fn receive(wire: Arc<Wire>, tx: mpsc::Sender<Event>) {
+@@ -681,7 +735,20 @@ async fn heartbeat(wire: Arc<Wire>) {
+     loop {
+         tokio::select! {_=shutdown.changed()=>break,_=interval.tick()=>{
+             if wire.closed(){break;}
+-            if let Ok(Ok(_))=timeout(Duration::from_millis(4500),wire.request(PING,vec![],None)).await{*wire.last_ping.lock().unwrap()=Instant::now();}
++            let ping_started=Instant::now();
++            let response=timeout(Duration::from_millis(4500),wire.request(PING,vec![],None)).await;
++            let rtt=ping_started.elapsed().as_millis() as u64;
++            let success=matches!(&response,Ok(Ok(_)));
++            {
++                let mut history=wire.ping_rtts.lock().unwrap();
++                history.push_back(rtt);
++                while history.len()>12{history.pop_front();}
++            }
++            if success{*wire.last_ping.lock().unwrap()=Instant::now();}
++            if !success||rtt>=300{
++                let outcome=match &response{Ok(Ok(_))=>"成功",Ok(Err(_))=>"请求失败",Err(_)=>"超时"};
++                eprintln!("ZECTRIX_PING：结果 {outcome} · RTT {rtt} 毫秒 · 本机时间 {}",log_time());
++            }
+         }}
+     }
+ }
+@@ -762,9 +829,9 @@ async fn receive(wire: Arc<Wire>, tx: mpsc::Sender<Event>) {
                      seen.push_back((p.kind,p.sequence,p.body.clone()));if seen.len()>256{seen.pop_front();}
                  }
                  match p.kind{
 -                    CLOSE=>break disconnect(p.body[0]),
-+                    CLOSE=>{eprintln!("ZECTRIX_CLOSE_RX：设备通知关闭 · 原始原因码 {}",p.body[0]);break disconnect(p.body[0])},
++                    CLOSE=>{eprintln!("ZECTRIX_CLOSE_RX：设备通知关闭 · 原始原因码 {} · 本机时间 {}",p.body[0],log_time());break disconnect(p.body[0])},
                      KEY=>{let key=match p.body[0]{1=>Key::Up,2=>Key::Down,_=>Key::Confirm};let action=if p.body[1]==1{KeyAction::Short}else{KeyAction::Long};if !emit(&wire,&tx,Event::Key{key,action}){break DisconnectReason::Failed;}},
 -                    RESULT=>{let id=u32_at(&p.body,0).unwrap();wire.store_result(p.body[4],id,p.body[5]);},
-+                    RESULT=>{let id=u32_at(&p.body,0).unwrap();eprintln!("ZECTRIX_RESULT_RX：对象 {}（1 图片 / 2 播放）· ID {id} · 原始结果码 {}",p.body[4],p.body[5]);wire.store_result(p.body[4],id,p.body[5]);},
++                    RESULT=>{let id=u32_at(&p.body,0).unwrap();eprintln!("ZECTRIX_RESULT_RX：对象 {}（1 图片 / 2 播放）· ID {id} · 原始结果码 {} · 本机时间 {}",p.body[4],p.body[5],log_time());wire.store_result(p.body[4],id,p.body[5]);},
                      AUDIO_BEGIN|AUDIO_DATA|AUDIO_END=>{
                          let id=if p.kind==AUDIO_BEGIN{p.sequence}else{u32_at(&p.body,0).unwrap()};
                          if id==0||id<=ended||recording.as_ref().is_some_and(|r|id<r.id){continue;}
