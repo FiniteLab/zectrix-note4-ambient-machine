@@ -74,6 +74,8 @@ unset target
 
 诊断时可手动运行 `./note4-ambient/diag-ping.sh start`，用 `stop` 停止、`status` 查看状态。日志保存在 `note4-ambient/out/ping.log`，设备地址会替换为 `[device]`。`ZECTRIX_DIAG_GAP=<起始帧>:<帧数>` 是受控断流实验开关，日常运行不要设置；实验结束后取消该环境变量并重启管理端。
 
+运行 `python3 note4-ambient/diag-phase.py --period 600` 可只读分析播放结束事件的周期相位、失败帧数和失败前 10 秒 ping；用 `--period 60` 分析一分钟周期，用 `--since <Unix秒>` 限定实验起始时间。
+
 ## 停止、更新与卸载
 
 ```sh
