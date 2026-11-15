@@ -20,6 +20,7 @@ pub struct SyncRequest {
 pub enum SyncCommand {
     Push(SyncRequest),
     Disable,
+    Volume(u8),
 }
 
 fn number<T: std::str::FromStr>(value: &str) -> Result<T, String> {
@@ -113,6 +114,11 @@ pub async fn watch(sender: UnboundedSender<SyncCommand>) {
             let _ = fs::remove_file(path);
             let command = if text.trim() == "disable" {
                 Ok(SyncCommand::Disable)
+            } else if let Some(value) = text.trim().strip_prefix("volume=") {
+                match value.parse::<u8>() {
+                    Ok(level) if [10, 25, 50, 75, 100].contains(&level) => Ok(SyncCommand::Volume(level)),
+                    _ => Err("网页音量档位无效".into()),
+                }
             } else {
                 SyncRequest::parse(&text).map(SyncCommand::Push)
             };

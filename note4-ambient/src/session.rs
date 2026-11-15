@@ -430,6 +430,50 @@ enum Outcome {
     Sync(crate::sync::SyncRequest),
 }
 
+enum VolumeChange {
+    Unchanged,
+    Resume,
+    Completed,
+}
+
+async fn change_playback_volume<F>(
+    device: &Device,
+    play: F,
+    clip: &mut AudioClip,
+    next: u8,
+    started: Instant,
+    volume: &mut u8,
+    report: &mut crate::sync::Report,
+) -> Result<VolumeChange, String>
+where
+    F: std::future::Future<Output = Result<PlaybackEnd, Error>>,
+{
+    if next == *volume {
+        return Ok(VolumeChange::Unchanged);
+    }
+    let consumed = ((started.elapsed().as_secs_f64() * 16000.0) as usize).min(clip.samples.len());
+    device.stop().await.map_err(|error| error_kind(&error))?;
+    match play.await.map_err(|error| error_kind(&error))? {
+        PlaybackEnd::Stopped => {
+            clip.samples = clip.samples.split_off(consumed);
+            *volume = next;
+            report.volume = next;
+            report.write();
+            let preset = report.preset;
+            let device_status = report.device.clone();
+            present_optional(device, Screen::Cover(preset), &device_status, report).await?;
+            Ok(VolumeChange::Resume)
+        }
+        PlaybackEnd::Completed => {
+            *volume = next;
+            report.volume = next;
+            report.write();
+            Ok(VolumeChange::Completed)
+        }
+        _ => Err("调整音量时播放未正常结束".into()),
+    }
+}
+
 async fn play_segment(
     device: &Device,
     mut clip: AudioClip,
@@ -501,30 +545,13 @@ async fn play_segment(
                         Some(Control::Fatal(message)) => return Err(message),
                         Some(Control::Volume(delta)) => {
                             let next = next_volume(*volume, delta);
-                            if next == *volume {
-                                continue 'events;
-                            }
-                            let consumed = ((started.elapsed().as_secs_f64() * 16000.0) as usize).min(clip.samples.len());
-                            device.stop().await.map_err(|error| error_kind(&error))?;
-                            match play.await.map_err(|error| error_kind(&error))? {
-                                PlaybackEnd::Stopped => {
-                                    clip.samples = clip.samples.split_off(consumed);
-                                    *volume = next;
-                                    report.volume = next;
-                                    report.write();
-                                    let preset = report.preset;
-                                    let device_status = report.device.clone();
-                                    present_optional(device, Screen::Cover(preset), &device_status, report).await?;
+                            match change_playback_volume(device, &mut play, &mut clip, next, started, volume, report).await? {
+                                VolumeChange::Unchanged => continue 'events,
+                                VolumeChange::Resume => {
                                     println!("音量：{next}；画面已更新，从当前位置附近续播");
                                     continue 'playback;
                                 }
-                                PlaybackEnd::Completed => {
-                                    *volume = next;
-                                    report.volume = next;
-                                    report.write();
-                                    return Ok(Outcome::Completed);
-                                }
-                                _ => return Err("调整音量时播放未正常结束".into()),
+                                VolumeChange::Completed => return Ok(Outcome::Completed),
                             }
                         }
                         None => return Err("事件通道已关闭".into()),
@@ -547,6 +574,16 @@ async fn play_segment(
                             match play.await.map_err(|error| error_kind(&error))? {
                                 PlaybackEnd::Stopped | PlaybackEnd::Completed => return Ok(Outcome::Sync(request)),
                                 _ => return Err("同步推送前播放未正常结束".into()),
+                            }
+                        }
+                        Some(crate::sync::SyncCommand::Volume(next)) => {
+                            match change_playback_volume(device, &mut play, &mut clip, next, started, volume, report).await? {
+                                VolumeChange::Unchanged => println!("网页音量：{next}；已是当前音量"),
+                                VolumeChange::Resume => {
+                                    println!("网页音量：{next}；画面已更新，从当前位置附近续播");
+                                    continue 'playback;
+                                }
+                                VolumeChange::Completed => return Ok(Outcome::Completed),
                             }
                         }
                         Some(crate::sync::SyncCommand::Disable) => {
@@ -683,6 +720,15 @@ async fn transition(
                             let _ = task.await;
                             request = TransitionRequest::Sync(source);
                             continue 'transition;
+                        }
+                        Some(crate::sync::SyncCommand::Volume(next)) => {
+                            if next != settings.volume {
+                                settings.volume = next;
+                                report.volume = next;
+                                report.write();
+                                present_optional(device, Screen::Loading(settings.preset), status, report).await?;
+                                println!("网页加载中音量：{next}；画面已更新");
+                            }
                         }
                         Some(crate::sync::SyncCommand::Disable) => {
                             synced = false;
@@ -934,6 +980,9 @@ pub async fn serve() -> Result<(), String> {
                         report.phase = "offline";
                         report.write();
                         println!("网页音频未推送：NOTE4 未连接，不排队、不自动连接");
+                    }
+                    Some(crate::sync::SyncCommand::Volume(level)) => {
+                        println!("网页音量 {level} 未推送：NOTE4 未连接，不排队、不自动连接");
                     }
                     Some(crate::sync::SyncCommand::Disable) => {
                         report.sync_state = "disabled";

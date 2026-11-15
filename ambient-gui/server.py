@@ -19,7 +19,6 @@ RENDER_BIN = Path(os.environ.get("AMB_RENDER_BIN") or ROOT.parent / "ambient-syn
 AUDIO_DIR = Path(os.environ.get("AMBIENT_GUI_DATA") or ROOT / "out")
 HOST = os.environ.get("AMBIENT_GUI_HOST", "127.0.0.1")
 PORT = int(os.environ.get("AMBIENT_GUI_PORT", "8765"))
-TOKEN_FILE = Path(os.environ.get("AMBIENT_GUI_TOKEN_FILE") or Path.home() / ".config" / "ambient-gui" / "token")
 
 PRESETS = [
     {"id": 0, "name": "garden", "title": "温室晨光", "description": "温暖的 Rhodes、柔和钟声与缓慢生长的和声。", "format": "gray16"},
@@ -127,6 +126,17 @@ def queue_sync(output, preset, seconds, seed, normalized, interrupt=False):
     return {"enabled": True, "requested": True, "id": identifier}
 
 
+def queue_volume(level):
+    if not note4_status()["connected"]:
+        return {"requested": False, "reason": "offline"}
+    identifier = time.time_ns()
+    try:
+        local_write(NOTE4_SPOOL / f"volume-{identifier}.cmd", f"volume={level}\n")
+    except OSError:
+        return {"requested": False, "reason": "local_error"}
+    return {"requested": True, "value": level, "id": identifier}
+
+
 def cleanup_ephemeral():
     global last_cleanup
     with cleanup_lock:
@@ -159,35 +169,11 @@ def cleanup_worker():
         time.sleep(300)
 
 
-def loopback():
-    return HOST in ("127.0.0.1", "localhost", "::1")
-
-
-def configured_token():
-    try:
-        return TOKEN_FILE.read_text().strip()
-    except OSError:
-        return ""
-
-
-TOKEN = configured_token()
-if not loopback() and not TOKEN:
-    raise SystemExit("非本机监听需要先在本地令牌文件中配置访问令牌")
-
-
 class Handler(BaseHTTPRequestHandler):
     server_version = "AmbientGUI/1.0"
 
     def log_message(self, *args):
         pass
-
-    def authorized(self):
-        if loopback():
-            return True
-        if self.headers.get("X-AMB-Token") == TOKEN:
-            return True
-        cookies = self.headers.get("Cookie", "")
-        return any(part.strip() == f"ambient_token={TOKEN}" for part in cookies.split(";"))
 
     def send(self, data, status=200, mime="application/json", headers=None):
         body = data if isinstance(data, bytes) else json.dumps(data, ensure_ascii=False).encode()
@@ -224,9 +210,7 @@ class Handler(BaseHTTPRequestHandler):
         cleanup_ephemeral()
         path = urlsplit(self.path).path
         if path == "/api/health":
-            return self.send({"ok": True, "presets": len(PRESETS), "rendererReady": RENDER_BIN.is_file() and os.access(RENDER_BIN, os.X_OK), "authRequired": not loopback(), "ephemeralRetention": EPHEMERAL_TTL})
-        if path in ("/api/presets", "/api/recipe", "/api/note4") and not self.authorized():
-            return self.send({"error": "需要访问令牌"}, 401)
+            return self.send({"ok": True, "presets": len(PRESETS), "rendererReady": RENDER_BIN.is_file() and os.access(RENDER_BIN, os.X_OK), "authRequired": False, "ephemeralRetention": EPHEMERAL_TTL})
         if path == "/api/presets":
             return self.send({"presets": PRESETS, "parameters": PARAMETERS, "fields": FIELD_PRESETS})
         if path == "/api/note4":
@@ -250,8 +234,6 @@ class Handler(BaseHTTPRequestHandler):
                     values[parameter["name"]] = value
             return self.send({"values": values})
         if path.startswith("/field-audio/"):
-            if not self.authorized():
-                return self.send({"error": "需要访问令牌"}, 401)
             name = path.rsplit("/", 1)[-1]
             field = next((item for item in FIELD_PRESETS if item["audio"] == name), None)
             audio = FIELD_ROOT / "audio" / name
@@ -259,8 +241,6 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send({"error": "实地录音不存在"}, 404)
             return self.stream(audio, "audio/mpeg")
         if path.startswith("/audio/"):
-            if not self.authorized():
-                return self.send({"error": "需要访问令牌"}, 401)
             name = path.rsplit("/", 1)[-1]
             if not re.fullmatch(r"[er]-[0-9a-f]{20}\.wav", name):
                 return self.send({"error": "音频不存在"}, 404)
@@ -284,19 +264,21 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urlsplit(self.path).path
-        if path == "/api/login":
-            try:
-                body = self.body()
-            except (ValueError, json.JSONDecodeError):
-                return self.send({"error": "请求格式无效"}, 400)
-            if not loopback() and body.get("token") != TOKEN:
-                return self.send({"error": "访问令牌不正确"}, 401)
-            headers = {} if loopback() else {"Set-Cookie": f"ambient_token={TOKEN}; HttpOnly; SameSite=Strict; Path=/"}
-            return self.send({"ok": True}, headers=headers)
-        if path not in ("/api/render", "/api/note4", "/api/field/play"):
+        if path not in ("/api/render", "/api/note4", "/api/note4/volume", "/api/field/play"):
             return self.send({"error": "Not found"}, 404)
-        if not self.authorized():
-            return self.send({"error": "需要访问令牌"}, 401)
+        if path == "/api/note4/volume":
+            try:
+                level = self.body().get("volume")
+                if type(level) is not int or level not in (10, 25, 50, 75, 100):
+                    raise ValueError("volume")
+            except (ValueError, KeyError, json.JSONDecodeError):
+                return self.send({"error": "音量档位无效"}, 400)
+            result = queue_volume(level)
+            if not result["requested"] and result["reason"] == "offline":
+                return self.send({"error": "NOTE4 未连接，未推送音量", "device": note4_status()}, 409)
+            if not result["requested"]:
+                return self.send({"error": "无法通知 NOTE4 管理端"}, 503)
+            return self.send({"ok": True, "syncEnabled": sync_enabled(), "device": note4_status(), "volume": result})
         if path == "/api/note4":
             try:
                 enabled = self.body().get("enabled")

@@ -11,7 +11,7 @@
   <header class="topbar">
     <a class="brand" href="#"><span class="brand-mark">AMB</span><span class="brand-word">atelier<small>ambient computer</small></span></a>
     <nav><a href="#studio">声景 / PATCH</a><a href="#fields">实地 / FIELD</a></nav>
-    <div class="header-actions"><span class="local-badge"><i></i>NAS / AMB–1</span><button id="loginButton" class="login-button" type="button" hidden>输入访问令牌</button></div>
+    <div class="header-actions"><span class="local-badge"><i></i>NAS / AMB–1</span></div>
   </header>
 
   <main class="chassis">
@@ -45,6 +45,20 @@
                 <span class="sync-switch" aria-hidden="true"><i></i></span>
                 <span class="sync-copy"><strong>生成后同步到 NOTE4</strong><small id="syncNote">仅新音频；缓存命中不重复推送</small></span>
               </label>
+              <div class="volume-push">
+                <label for="volumeChoice">NOTE4 音量</label>
+                <div class="volume-push-row">
+                  <select id="volumeChoice" aria-label="选择 NOTE4 音量">
+                    <option value="10">10%</option>
+                    <option value="25" selected>25%</option>
+                    <option value="50">50%</option>
+                    <option value="75">75%</option>
+                    <option value="100">100%</option>
+                  </select>
+                  <button id="pushVolume" type="button" disabled>推送音量</button>
+                </div>
+              </div>
+              <p class="period-hint">建议同步周期 180 分钟；更少中断选 720 分钟。周期同步可能干扰播放。</p>
               <p id="note4Detail" class="note4-detail" aria-live="polite">不会自动连接或抢占设备</p>
             </div>
             <div class="render-basics">
@@ -76,34 +90,23 @@
         <div class="section-heading"><div><p class="eyebrow">02 / SOUND BANK</p><h2>选择预设</h2></div><span class="muted">8 PATCHES</span></div>
         <div id="presetGrid" class="preset-grid" aria-live="polite"></div>
         <div class="module-foot"><span>按下选择声景</span><span>AMB–1 DSP</span></div>
+        <section id="fields" class="field-bank" aria-label="实地录音">
+          <div class="section-heading"><div><p class="eyebrow">03 / FIELD LIBRARY</p><h2>实地录音</h2></div><span class="muted">4 RECORDINGS / CC0</span></div>
+          <p class="section-copy">开放许可长环境录音，完整播放原始音轨。</p>
+          <div id="fieldPlayer" class="field-player" hidden>
+            <div class="now-playing"><span class="playing-dot"></span><span id="fieldCaption">正在准备录音…</span></div>
+            <audio id="fieldAudio" controls loop preload="none"></audio>
+            <div class="field-player-foot"><span>完整音轨循环 · NOTE4 由管理端独立续播</span><a id="fieldSource" href="#" target="_blank" rel="noopener noreferrer">来源与许可 ↗</a></div>
+          </div>
+          <div id="fieldGrid" class="field-grid"></div>
+        </section>
       </aside>
-    </section>
-
-    <section id="fields" class="fields-section">
-      <div class="section-heading"><div><p class="eyebrow">03 / FIELD LIBRARY</p><h2>实地录音</h2></div><span class="muted">4 RECORDINGS / CC0</span></div>
-      <p class="section-copy">开放许可的长环境录音。完整播放原始音轨；作者与来源保留在每张卡片中。</p>
-      <div id="fieldPlayer" class="field-player" hidden>
-        <div class="now-playing"><span class="playing-dot"></span><span id="fieldCaption">正在准备录音…</span></div>
-        <audio id="fieldAudio" controls loop preload="none"></audio>
-        <div class="field-player-foot"><span>完整音轨循环 · NOTE4 由管理端独立续播</span><a id="fieldSource" href="#" target="_blank" rel="noopener noreferrer">来源与许可 ↗</a></div>
-      </div>
-      <div id="fieldGrid" class="field-grid"></div>
     </section>
 
   </main>
 
   <footer><span>AMB–1 / MPL–2.0</span><span>LOCAL DSP · NO CLOUD</span></footer>
 
-  <dialog id="loginDialog">
-    <form id="loginForm" method="dialog">
-      <p class="eyebrow">LOCAL ACCESS</p>
-      <h2>接入氛围运算器</h2>
-      <p>请输入 NAS 上保存的本地访问令牌。令牌只保存在当前浏览器会话中。</p>
-      <input id="tokenInput" type="password" autocomplete="off" placeholder="访问令牌" required>
-      <p id="loginError" class="login-error" role="alert"></p>
-      <div class="dialog-actions"><button id="loginCancel" type="button">稍后</button><button id="loginSubmit" type="submit">进入</button></div>
-    </form>
-  </dialog>
   <script src="/continuous.js"></script>
   <script src="/app.js"></script>
 </body>

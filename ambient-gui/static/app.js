@@ -1,4 +1,4 @@
-const state = { presets: [], parameters: [], selected: 0, values: {}, group: "layers", busy: false, ready: false, selection: 0, authRequired: false, note4: null, syncEnabled: false, note4Busy: false, note4Reading: false, note4Timer: null, fields: [], currentField: -1, fieldBusy: false };
+const state = { presets: [], parameters: [], selected: 0, values: {}, group: "layers", busy: false, ready: false, selection: 0, note4: null, syncEnabled: false, note4Busy: false, note4Reading: false, note4Timer: null, fields: [], currentField: -1, fieldBusy: false, volumeChoice: null };
 const accents = ["#c9d7b0", "#a7b8cb", "#c3accb", "#dfc671", "#90b4c1", "#9abca4", "#d8dbd3", "#a7b2d5"];
 const engineNames = ["Garden", "Departures", "Voices", "Afternoon", "Night Bus", "Shoreline", "Glass", "Tides"];
 const groupNames = { layers: "声部", motion: "动态", space: "空间", tone: "音色" };
@@ -15,18 +15,9 @@ function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
 }
 
-function showLogin() {
-  $("loginError").textContent = "";
-  if (!$("loginDialog").open) $("loginDialog").showModal();
-}
-
 async function request(path, options = {}) {
   const response = await fetch(path, options);
   const body = await response.json().catch(() => ({}));
-  if (response.status === 401) {
-    $("loginButton").hidden = false;
-    if (path !== "/api/login") showLogin();
-  }
   if (!response.ok) {
     const error = new Error(body.error || `请求失败（${response.status}）`);
     error.status = response.status;
@@ -68,6 +59,11 @@ function renderNote4() {
   $("syncNote").textContent = state.syncEnabled
     ? device.connected ? "后续提前生成的段会排队，不提前切歌" : "已开启；离线生成不会补推"
     : "仅网页播放，不占用 NOTE4";
+  if (state.volumeChoice === null) {
+    $("volumeChoice").value = [10, 25, 50, 75, 100].includes(device.volume) ? String(device.volume) : "25";
+  }
+  $("volumeChoice").disabled = state.note4Busy;
+  $("pushVolume").disabled = state.note4Busy || !device.connected;
 }
 
 function applyNote4(data) {
@@ -328,8 +324,6 @@ function startAudio() {
 async function initialize() {
   try {
     const health = await request("/api/health");
-    state.authRequired = health.authRequired;
-    $("loginButton").hidden = !health.authRequired;
     if (!health.rendererReady) throw new Error("NAS 渲染器尚未就绪");
     const retention = health.ephemeralRetention;
     $("retentionNote").textContent = retention ? `连续段在 NAS 保留 ${retention / 3600} 小时，下载可长期保存。` : "连续段限时保留，下载可长期保存。";
@@ -337,7 +331,6 @@ async function initialize() {
     state.presets = data.presets;
     state.parameters = data.parameters;
     state.fields = data.fields;
-    $("loginButton").hidden = true;
     renderPresets();
     renderFields();
     renderTabs();
@@ -370,6 +363,29 @@ $("syncPush").addEventListener("change", async (event) => {
     renderNote4();
   }
 });
+$("volumeChoice").addEventListener("change", (event) => {
+  state.volumeChoice = Number(event.currentTarget.value);
+});
+$("pushVolume").addEventListener("click", async () => {
+  const level = state.volumeChoice ?? Number($("volumeChoice").value);
+  state.note4Busy = true;
+  renderNote4();
+  try {
+    const data = await request("/api/note4/volume", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ volume: level }),
+    });
+    applyNote4(data);
+    state.volumeChoice = null;
+    setStatus(`音量 ${level}% 已提交管理端，等待 NOTE4 状态确认。`, "success");
+  } catch (error) {
+    setStatus(error.message, "error");
+  } finally {
+    state.note4Busy = false;
+    renderNote4();
+  }
+});
 $("renderButton").addEventListener("click", startAudio);
 $("stopPlayback").addEventListener("click", () => player.stop());
 $("retryNext").addEventListener("click", () => {
@@ -377,31 +393,6 @@ $("retryNext").addEventListener("click", () => {
   player.prepareNext();
 });
 $("resetParameters").addEventListener("click", () => selectPreset(state.selected));
-$("loginButton").addEventListener("click", showLogin);
-$("loginForm").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const submit = $("loginSubmit");
-  submit.disabled = true;
-  $("loginError").textContent = "";
-  try {
-    await request("/api/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: $("tokenInput").value }),
-    });
-    $("tokenInput").value = "";
-    $("loginDialog").close();
-    $("loginButton").hidden = true;
-    setStatus("已解锁本地渲染。", "success");
-    await initialize();
-  } catch (error) {
-    $("loginError").textContent = error.message;
-  } finally {
-    submit.disabled = false;
-  }
-});
-$("loginCancel").addEventListener("click", () => $("loginDialog").close());
-$("tokenInput").addEventListener("input", () => { $("loginError").textContent = ""; });
 if ("mediaSession" in navigator) {
   navigator.mediaSession.setActionHandler("play", () => player.resume());
   navigator.mediaSession.setActionHandler("pause", () => player.pause());
